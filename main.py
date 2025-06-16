@@ -1,9 +1,8 @@
 import os
 import json
-import threading
-from flask import Flask
+from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 from scoring import evaluate_score
 from messages import messages
 
@@ -17,9 +16,28 @@ with open("questions.json", "r") as f:
 # Initialize Flask app
 app = Flask(__name__)
 
+# Initialize Telegram application
+telegram_app = Application.builder().token(os.environ["BOT_TOKEN"]).build()
+
 @app.route('/')
 def home():
     return "✅ IELTS Tori Bot is Running 24/7"
+
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    """Handle incoming webhook updates from Telegram."""
+    try:
+        # Get the update from Telegram
+        update_data = request.get_json()
+        update = Update.de_json(update_data, telegram_app.bot)
+        
+        # Process the update
+        await telegram_app.process_update(update)
+        
+        return "OK", 200
+    except Exception as e:
+        print(f"Error processing webhook: {e}")
+        return "Error", 500
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the conversation and asks the first question."""
@@ -82,22 +100,15 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text("Something went wrong. Please start again with /start")
         return ConversationHandler.END
 
-# Add these lines at the VERY BOTTOM of your bot.py content:
-def run_bot():
-    telegram_app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
-    
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={ASKING: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer)]},
-        fallbacks=[]
-    )
-    telegram_app.add_handler(conv_handler)
-    telegram_app.run_polling()
+# Set up conversation handler
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("start", start)],
+    states={ASKING: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer)]},
+    fallbacks=[]
+)
 
-# Start bot in background thread
-bot_thread = threading.Thread(target=run_bot)
-bot_thread.daemon = True
-bot_thread.start()
+# Add handlers to the application
+telegram_app.add_handler(conv_handler)
 
 if __name__ == "__main__":
     # Run Flask app on all interfaces for deployment
