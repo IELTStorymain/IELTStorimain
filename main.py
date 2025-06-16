@@ -17,7 +17,7 @@ with open("questions.json", "r") as f:
 app = Flask(__name__)
 
 # Initialize Telegram application
-telegram_app = Application.builder().token(os.environ["BOT_TOKEN"]).build()
+telegram_app = Application.builder().token(os.environ["8023160531:AAEHGg8_CAd0ceIceT6isGNH1Am8J2wJYNs8023160531:AAEHGg8_CAd0ceIceT6isGNH1Am8J2wJYNs"]).build()
 
 @app.route('/')
 def home():
