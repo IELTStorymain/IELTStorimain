@@ -1,0 +1,105 @@
+import os
+import json
+import threading
+from flask import Flask
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from scoring import evaluate_score
+from messages import messages
+
+# States for conversation handler
+ASKING = 0
+
+# Load questions from JSON file
+with open("questions.json", "r") as f:
+    questions = json.load(f)
+
+# Initialize Flask app
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ IELTS Tori Bot is Running 24/7"
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts the conversation and asks the first question."""
+    user_id = update.effective_user.id
+    context.user_data["current_question_index"] = 0
+    context.user_data["correct_answers"] = 0
+
+    # Determine language based on user's locale or default to English
+    lang = "en" # Default language
+    if update.effective_user.language_code and update.effective_user.language_code.startswith("fa"):
+        lang = "fa"
+    context.user_data["lang"] = lang
+
+    question_data = questions[context.user_data["current_question_index"]]
+    options = question_data["options"]
+    reply_keyboard = [[option] for option in options]
+
+    await update.message.reply_text(
+        messages[f"start_{lang}"],
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True),
+    )
+    await update.message.reply_text(question_data["question"])
+    return ASKING
+
+async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles user's answer, checks correctness, and asks next question or ends quiz."""
+    user_answer = update.message.text
+    user_id = update.effective_user.id
+    lang = context.user_data.get("lang", "en")
+
+    current_question_index = context.user_data.get("current_question_index", 0)
+    correct_answers = context.user_data.get("correct_answers", 0)
+
+    if current_question_index < len(questions):
+        question_data = questions[current_question_index]
+        if user_answer == question_data["answer"]:
+            correct_answers += 1
+            context.user_data["correct_answers"] = correct_answers
+
+        current_question_index += 1
+        context.user_data["current_question_index"] = current_question_index
+
+        if current_question_index < len(questions):
+            next_question_data = questions[current_question_index]
+            options = next_question_data["options"]
+            reply_keyboard = [[option] for option in options]
+            await update.message.reply_text(
+                next_question_data["question"],
+                reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True),
+            )
+            return ASKING
+        else:
+            # Quiz finished
+            level, ielts_band = evaluate_score(correct_answers)
+            result_message = messages[f"result_{lang}"].format(level=level, ielts=ielts_band)
+            await update.message.reply_text(result_message)
+            return ConversationHandler.END
+    else:
+        # This case should ideally not be reached if conversation flow is correct
+        await update.message.reply_text("Something went wrong. Please start again with /start")
+        return ConversationHandler.END
+
+# Add these lines at the VERY BOTTOM of your bot.py content:
+def run_bot():
+    telegram_app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
+    
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={ASKING: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer)]},
+        fallbacks=[]
+    )
+    telegram_app.add_handler(conv_handler)
+    telegram_app.run_polling()
+
+# Start bot in background thread
+bot_thread = threading.Thread(target=run_bot)
+bot_thread.daemon = True
+bot_thread.start()
+
+if __name__ == "__main__":
+    # Run Flask app on all interfaces for deployment
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+
