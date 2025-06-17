@@ -16,20 +16,19 @@ with open("questions.json", "r") as f:
 # Initialize Flask app
 app = Flask(__name__)
 
-# Initialize Telegram application
+# Initialize Telegram application (without polling components)
 telegram_app = Application.builder().token(os.environ["BOT_TOKEN"]).build()
 
-@app.route('/')
+@app.route("/")
 def home():
     return "✅ IELTS Tori Bot is Running 24/7"
 
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 async def webhook():
     """Handle incoming webhook updates from Telegram."""
     try:
         # Get the update from Telegram
-        update_data = request.get_json()
-        update = Update.de_json(update_data, telegram_app.bot)
+        update = Update.de_json(request.get_json(), telegram_app.bot)
         
         # Process the update
         await telegram_app.process_update(update)
@@ -111,6 +110,15 @@ conv_handler = ConversationHandler(
 telegram_app.add_handler(conv_handler)
 
 if __name__ == "__main__":
-    # Run Flask app on all interfaces for deployment
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+    # This is important for Render.com to know which port to bind to
+    port = int(os.environ.get("PORT", 5000))
+    
+    # Set the webhook for the bot. Render.com will provide the public URL.
+    # The URL will be like https://your-service-name.onrender.com/webhook
+    # You need to set this webhook URL with Telegram via the setWebhook API call.
+    # This part is done manually by the user after deployment.
+    
+    # Start Flask app
+    app.run(host="0.0.0.0", port=port, debug=False)
+
 
